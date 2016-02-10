@@ -77,6 +77,8 @@ var appRouter = function(app) {
 								 	// Get the title
 								 	title = $link.text().trim(),
 								 	
+								 	description = $title.attr('title'),
+
 								 	// Get the human readable date
 								 	date_string = $pen.find('.date').text().trim(),
 								 	// Get the date object date
@@ -96,6 +98,7 @@ var appRouter = function(app) {
 
 								data.push({
 									title: title,
+									description: description,
 									id: id,
 									last_updated: {
 										string: date_string,
@@ -146,10 +149,142 @@ var appRouter = function(app) {
 	 * Get a specific pen and its information.
 	 */
 	app.get('/pen/:user/:id', function (req, res) {
-		res.send({
-			user: req.params.user,
-			id: req.params.id
-		});
+
+		var 
+			username = ( req.params.user ) ? req.params.user : false,
+			id = ( req.params.id ) ? req.params.id : false,
+			include_comments = ( req.query.comments === 'true' ) ? true : false,
+			url = base_url + username + '/details/' + id + '/',
+			data = {};
+
+		if ( !username || !id ){
+			send_error( res, 'A username and valid pen ID is required.');
+		}
+		else {
+			// Make the request
+			request( url, function (error, response, body) {
+				// Error
+				if ( error ){
+					send_error(res, 'An unknown error occured in the request.');
+				}
+				// Error 404
+				if ( response.statusCode === 404){
+					send_error(res, 'Error from CodePen. Make sure you have a proper type and username.');
+				}
+				// No errors! Continue.
+				else if ( !error && response.statusCode === 200){
+					// Load our HTML response into cheerio
+					var $ = cheerio.load(body);
+					
+					var $all_details = $('.all-details');
+
+					var title = $all_details.find('#details-title').text().trim();
+
+					var $author = $all_details.find('.details-meta').find('a');
+					var author_name = $author.text().trim();
+					var author_link = base_url + $author.attr('href').replace('/', '');
+
+					var $description = $all_details.find('.pen-description');
+					var description_html = $description.html().trim();
+					var description_text = $description.text().trim();
+
+					var $dateline = $all_details.find('.dateline time');
+					var created_at = $dateline.attr('datetime');
+
+					var $stats = $('#pen-stat-numbers');
+					var views_stat = parseInt( $stats.find('li').eq(0).find('strong').text().trim() );
+					var comments_stat = parseInt ( $stats.find('li').eq(1).find('strong').text().trim() );
+					var loves_stat = parseInt( $stats.find('li').eq(2).find('strong').text().trim() );
+
+					var tags_data = [];
+					var $tags = $all_details.find('.tag-grid li');
+
+					var comments_data = [];
+					var $comments = $('#comment-list li');
+
+					if ( include_comments ){
+						$comments.each(function(index, el) {
+							var
+								$comment = $(this),
+								
+								$user = $comment.find('.comment-user'),
+								comment_user = $user.find('.comment-username').attr('data-username'),
+								comment_user_link = base_url + $user.find('.comment-username').attr('href').replace('/',''),
+								comment_user_avatar = $user.find('.comment-avatar').attr('src'),
+
+								comment_created_at = $comment.find('.block-comment-time').text().trim(),
+
+								comment_id = $comment.attr('id').replace('comment-id-',''),
+								comment_hash_id = $comment.find('.loves').attr('data-hashid'),
+								comment_link = $user.find('.comment-username').next('a').attr('href'),
+
+								comment_text = $comment.find('.comment-text').html().trim();
+
+							comments_data.push({
+								id: comment_id,
+								hash: comment_hash_id,
+								link: comment_link,
+								content: comment_text,
+								user: {
+									name: comment_user,
+									avatar: comment_user_avatar,
+									link: comment_user_link
+								}
+							});
+						});
+					}
+					$tags.each(function(index, el) {
+						var 
+							$tag = $(this),
+ 							tag_name = $tag.find('a').text().trim(),
+ 							tag_link = base_url + $tag.find('a').attr('href').replace(/^\//,"");
+
+ 						tags_data.push({
+ 							name: tag_name,
+ 							link: tag_link
+ 						});
+					});	
+
+
+					data = {
+						id: id,
+						title: title,
+						links: {
+							editor: base_url + username + '/pen/' + id + '/',
+							details: base_url + username + '/details/' + id + '/',
+							full: base_url + username + '/full/' + id + '/',
+							presentation: base_url + username + '/pres/' + id + '/'
+						},
+						description: {
+							html: description_html,
+							text: description_text
+						},
+						author: {
+							link: author_link, 
+							name: author_name
+						},
+						created_at: created_at,
+						stats: {
+							views: views_stat,
+							comments: comments_stat,
+							loves: loves_stat
+						},
+						tags: tags_data
+					};
+
+					if ( include_comments ){
+						data.comments = comments_data;
+					}
+
+					res.send({
+						success: true,
+						data: data
+					});
+
+				}
+
+			});
+		}
 	});
 
 
@@ -204,7 +339,7 @@ var appRouter = function(app) {
 					};
 
 					res.send({
-						success: 'true',
+						success: true,
 						data: data
 					});
 				}
